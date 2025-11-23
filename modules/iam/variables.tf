@@ -18,4 +18,5 @@ variable "github_repo" {
 
 variable "tags" {
   type = map(string)
+  default = {}
 }

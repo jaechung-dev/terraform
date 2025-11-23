@@ -14,18 +14,18 @@ env:
 
 jobs:
   deploy:
-    name: Build → Push → Deploy to ECS
+    name: Build → Push → Deploy ECS
     runs-on: ubuntu-latest
 
     permissions:
-      id-token: write # REQUIRED for OIDC
-      contents: read # required to checkout code
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials via OIDC
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -35,51 +35,70 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & Push Docker image
+      - name: Build and push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
+          set -euo pipefail
+
           TAG=${GITHUB_SHA::7}
           IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$TAG"
 
-          echo "Building image: $IMAGE"
+          echo "Building image $IMAGE"
           docker build -t "$IMAGE" .
 
           echo "Pushing image..."
           docker push "$IMAGE"
 
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Prepare new task definition
+        id: taskdef
         run: |
-          echo "Fetching existing task definition..."
+          set -euo pipefail
+
+          # 1. Get current task definition JSON
           TASK_DEF_JSON=$(aws ecs describe-task-definition \
             --task-definition "$TASK_FAMILY" \
-            --query "taskDefinition" --output json)
+            --query "taskDefinition" \
+            --output json)
 
-          echo "Updating container image..."
+          # 2. Update image and remove read-only fields that ECS won't accept
           NEW_TASK_DEF=$(echo "$TASK_DEF_JSON" | jq \
             --arg IMAGE "$IMAGE" \
-            '.containerDefinitions[0].image = $IMAGE')
+            '
+              .containerDefinitions[0].image = $IMAGE
+              | del(
+                  .taskDefinitionArn,
+                  .revision,
+                  .status,
+                  .requiresAttributes,
+                  .compatibilities,
+                  .registeredAt,
+                  .registeredBy,
+                  .deregisteredAt,
+                  .deregisteredBy
+                )
+            ')
 
           echo "$NEW_TASK_DEF" > new-taskdef.json
 
-      - name: Register new task definition
-        id: register
-        run: |
+          # 3. Register new task definition revision
           REGISTERED=$(aws ecs register-task-definition \
             --cli-input-json file://new-taskdef.json)
 
           NEW_REV=$(echo "$REGISTERED" | jq -r '.taskDefinition.taskDefinitionArn')
-          echo "TASK_REV=$NEW_REV" >> $GITHUB_ENV
-          echo "Registered: $NEW_REV"
 
-      - name: Deploy new revision to ECS
+          echo "TASK_DEF_ARN=$NEW_REV" >> "$GITHUB_ENV"
+
+      - name: Deploy new Task Definition to ECS Service
         run: |
+          set -euo pipefail
+
           aws ecs update-service \
-            --cluster $CLUSTER_NAME \
-            --service $SERVICE_NAME \
-            --task-definition $TASK_REV \
+            --cluster "$CLUSTER_NAME" \
+            --service "$SERVICE_NAME" \
+            --task-definition "$TASK_DEF_ARN" \
             --force-new-deployment
 
-          echo "Deployment triggered successfully."
+          echo "Deployment triggered."

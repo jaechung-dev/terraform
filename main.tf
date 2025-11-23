@@ -89,5 +89,7 @@ module "github_actions_iam" {
   github_org  = var.github_org
   github_repo = var.github_repo
 
+  task_execution_role_arn = module.ecs.task_execution_role_arn
+
   tags = local.common_tags
 }

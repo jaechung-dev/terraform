@@ -20,3 +20,8 @@ variable "tags" {
   type = map(string)
   default = {}
 }
+
+variable "task_execution_role_arn" {
+  description = "ECS task execution role ARN that GitHub Actions may pass"
+  type        = string
+}

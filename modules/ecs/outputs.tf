@@ -12,3 +12,8 @@ output "task_definition_arn" {
   value       = aws_ecs_task_definition.app.arn
   description = "Task definition ARN"
 }
+
+output "task_execution_role_arn" {
+  description = "ARN of the ECS task execution role"
+  value       = aws_iam_role.task_execution.arn
+}

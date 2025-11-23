@@ -38,7 +38,7 @@ resource "aws_iam_role" "github_deploy" {
   tags = var.tags
 }
 
-# Inline policy: allow ECR push & ECS deploy
+# Inline policy: allow ECR push & ECS deploy + iam:PassRole
 resource "aws_iam_role_policy" "github_deploy_policy" {
   name = "${var.project_name}-${var.environment}-github-deploy-policy"
   role = aws_iam_role.github_deploy.id
@@ -75,6 +75,14 @@ resource "aws_iam_role_policy" "github_deploy_policy" {
           "ecs:ListServices"
         ]
         Resource = "*"
+      },
+      # ----- iam:PassRole so RegisterTaskDefinition can use the ECS execution role -----
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = var.task_execution_role_arn
       },
       # ----- Logs (optional but useful) -----
       {
